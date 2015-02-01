@@ -1,0 +1,5 @@
+name: RankSync
+version: 1.0
+author: Lactem
+main: com.minecave.ranks.RankSync
+depend: [PermissionsEx]

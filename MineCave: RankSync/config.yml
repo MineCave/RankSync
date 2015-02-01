@@ -1,0 +1,22 @@
+host: 'localhost'
+port: '3306'
+database: 'RANKS'
+user: 'root'
+pass: 'password'
+
+ranks to sync:
+- coal
+- iron
+- gold
+- lapis
+- diamond
+- emerald
+- elite
+- helper
+- moderator
+- admin
+- co-owner
+- owner
+- dev
+- developer
+- youtube
