@@ -16,7 +16,7 @@ public class Table {
 	private Map<String, String> stats;
 	private static List<Table> tables = Lists.newArrayList();
 	
-	// UUID has to be the first stat in every list except ones with playerSpecific set to false.
+	// UUID has to be the first stat in every list.
 	public static final Table RANKS;
 	
 	// RANKS

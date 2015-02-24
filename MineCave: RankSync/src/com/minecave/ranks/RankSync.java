@@ -58,13 +58,10 @@ public class RankSync extends JavaPlugin implements Listener {
 		String operation = args[4];
 		String rank = args[5];
 		
-		if (operation.equalsIgnoreCase("remove")) {
-			Bukkit.broadcastMessage("removing rank");
+		if (operation.equalsIgnoreCase("remove"))
 			removeRank(args[2], rank);
-		} else if (operation.equalsIgnoreCase("set")) {
-			Bukkit.broadcastMessage("setting rank");
+		else if (operation.equalsIgnoreCase("set"))
 			setRank(args[2], rank);
-		}
 	}
 	
 	@EventHandler
@@ -123,13 +120,11 @@ public class RankSync extends JavaPlugin implements Listener {
 			protected void done() {
 				String groups = result == null ? "" : (String) result;
 				for (String group : getGroupsToGet(player)) {
-					Bukkit.broadcastMessage("group from getGroupsToGet: " + group + "; willAdd: " + (!groups.contains(group)));
-					if (!groups.contains(group))
+					if (!groups.toLowerCase().contains(group.toLowerCase()))
 						groups = groups.isEmpty() ? groups.concat(group) : groups.concat(";").concat(group);
 				}
 				if (groups.startsWith(";"))
 					groups = groups.replaceFirst(";", "");
-				Bukkit.broadcastMessage("[syncGroups] groups: " + groups);
 				
 				new SQLSet(player, "groups", groups, table);
 			}
@@ -145,11 +140,9 @@ public class RankSync extends JavaPlugin implements Listener {
 		List<String> newGet = Lists.newArrayList();
 		
 		PermissionUser user = PermissionsEx.getUser(player);
-		for (PermissionGroup group : user.getGroups()) {
-			Bukkit.broadcastMessage("does toSync contain " + group.getName().toLowerCase() + ": " + toSync.contains(group.getName().toLowerCase()));
+		for (PermissionGroup group : user.getGroups())
 			if (toSync.contains(group.getName().toLowerCase()))
-				newGet.add(group.getName().toLowerCase());
-		}
+				newGet.add(group.getName());
 		
 		return newGet;
 	}
@@ -163,13 +156,11 @@ public class RankSync extends JavaPlugin implements Listener {
 			protected void done() {
 				String groups = result == null ? "" : (String) result;
 				for (String group : getGroupsToGet(player))
-					if (!groups.contains(group))
+					if (!groups.toLowerCase().contains(group.toLowerCase()))
 						groups += ";".concat(group);
 				
-				if (groups.contains(rank.toLowerCase()))
-					groups = groups.replace(";" + rank.toLowerCase(), "");
-				
-				Bukkit.broadcastMessage("[removeRank] groups: " + groups);
+				if (groups.toLowerCase().contains(rank.toLowerCase()))
+					groups = groups.replaceAll("(?i);" + rank, "");
 				
 				new SQLSet(uuid, "groups", groups, table);
 			}
