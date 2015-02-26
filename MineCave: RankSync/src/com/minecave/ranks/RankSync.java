@@ -1,15 +1,18 @@
 package com.minecave.ranks;
 
 import java.util.List;
+import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerKickEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -29,6 +32,8 @@ public class RankSync extends JavaPlugin implements Listener {
 	
 	public static RankSync p;
 	
+	private boolean debug;
+	
 	private FileUtils files;
 	private Table table;
 	
@@ -37,6 +42,7 @@ public class RankSync extends JavaPlugin implements Listener {
 	@Override
 	public void onEnable() {
 		p = this;
+		debug = false;
 		files = new FileUtils(this);
 		if (MySQL.getInstance() == null)
 			new MySQL(this);
@@ -58,17 +64,26 @@ public class RankSync extends JavaPlugin implements Listener {
 		String operation = args[4];
 		String rank = args[5];
 		
-		if (operation.equalsIgnoreCase("remove")) {
-			Bukkit.broadcastMessage("removing rank");
+		if (operation.equalsIgnoreCase("remove"))
 			removeRank(args[2], rank);
-		} else if (operation.equalsIgnoreCase("set")) {
-			Bukkit.broadcastMessage("setting rank");
+		else if (operation.equalsIgnoreCase("set"))
 			setRank(args[2], rank);
+	}
+	
+	@Override
+	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+		if (command.getName().equalsIgnoreCase("ranksyncdebug")) {
+			if (!sender.hasPermission("ranksyncdebug.toggle"))
+				return true;
+			
+			debug = !debug;
+			sender.sendMessage("Debug mode is now set to " + debug + ".");
 		}
+		return true;
 	}
 	
 	@EventHandler
-	public void onJoin(final PlayerJoinEvent event) {
+	public void onJoin(final PlayerLoginEvent event) {
 		new SQLNewPlayer(event.getPlayer().getUniqueId().toString(), table) {
 			@Override
 			protected void done() {
@@ -102,16 +117,28 @@ public class RankSync extends JavaPlugin implements Listener {
 				
 				String[] groups = groupsString.split(";");
 				
-				if (groups.length == 0)
+				if (groups.length == 0) {
+					debug("Player " + player.getName() +
+							" had no ranks in MySQL. Ignoring player completely...");
 					return;
+				}
+				
 				PermissionUser user = PermissionsEx.getUser(player);
 				List<String> currentGroups = Lists.newArrayList();
 				for (PermissionGroup group : user.getGroups())
 					currentGroups.add(group.getName().toLowerCase());
 				
 				for (String group : groups) {
-					if (!currentGroups.contains(group.toLowerCase()))
+					if (!currentGroups.contains(group.toLowerCase())) {
+						debug("[updateGroups (login)] Player " + player.getName() +
+								" did not have group " + group +
+								" in-game, but had it in MySQL. Adding in-game...");
 						user.addGroup(group);
+					} else {
+						debug("[updateGroups (login)] Player " + player.getName() +
+								" already had group " + group +
+								" in-game and in MySQL. Ignoring...");
+					}
 				}
 			}
 		};
@@ -123,13 +150,21 @@ public class RankSync extends JavaPlugin implements Listener {
 			protected void done() {
 				String groups = result == null ? "" : (String) result;
 				for (String group : getGroupsToGet(player)) {
-					Bukkit.broadcastMessage("group from getGroupsToGet: " + group + "; willAdd: " + (!groups.contains(group)));
-					if (!groups.contains(group))
+					if (!groups.contains(group)) {
+						debug("[syncGroups] Player " + player.getName() +
+								" did not have the group " + group +
+								" in MySQL, but had it in-game. Adding to MySQL...");
 						groups = groups.isEmpty() ? groups.concat(group) : groups.concat(";").concat(group);
+					} else {
+						debug("[syncGroups] Player " + player.getName() +
+								" already had the group " + group +
+								" in-game and in MySQL. Ignoring...");
+					}
 				}
 				if (groups.startsWith(";"))
 					groups = groups.replaceFirst(";", "");
-				Bukkit.broadcastMessage("[syncGroups] groups: " + groups);
+				
+				debug("[syncGroups] Final task: setting groups in MySQL to '" + groups + "'.");
 				
 				new SQLSet(player, "groups", groups, table);
 			}
@@ -145,10 +180,15 @@ public class RankSync extends JavaPlugin implements Listener {
 		List<String> newGet = Lists.newArrayList();
 		
 		PermissionUser user = PermissionsEx.getUser(player);
-		for (PermissionGroup group : user.getGroups()) {
-			Bukkit.broadcastMessage("does toSync contain " + group.getName().toLowerCase() + ": " + toSync.contains(group.getName().toLowerCase()));
-			if (toSync.contains(group.getName().toLowerCase()))
-				newGet.add(group.getName().toLowerCase());
+		for (String group : user.getGroupsNames()) {
+			if (toSync.contains(group.toLowerCase())) {
+				newGet.add(group.toLowerCase());
+				debug("[getGroupsToGet] Player " + player +
+						" has group " + group + " and it's on the to-sync list.");
+			} else {
+				debug("[getGroupsToGet] Player " + player +
+						" has group " + group + ", but it's not on the to-sync list.");
+			}
 		}
 		
 		return newGet;
@@ -157,35 +197,54 @@ public class RankSync extends JavaPlugin implements Listener {
 	@SuppressWarnings("deprecation")
 	private void removeRank(final String player, final String rank) {
 		final String uuid = Bukkit.getOfflinePlayer(player).getUniqueId().toString();
+		final PermissionUser user = PermissionsEx.getUser(player);
 		
 		new SQLGet(uuid, "groups", table) {
 			@Override
 			protected void done() {
 				String groups = result == null ? "" : (String) result;
-				for (String group : getGroupsToGet(player))
-					if (!groups.contains(group))
-						groups += ";".concat(group);
 				
-				if (groups.contains(rank.toLowerCase()))
-					groups = groups.replace(";" + rank.toLowerCase(), "");
+				debug("[removeRank] Groups for player " + player +
+						" before attempting to remove: " + groups);
 				
-				Bukkit.broadcastMessage("[removeRank] groups: " + groups);
+				if (groups.toLowerCase().contains(rank.toLowerCase()))
+					groups = groups.replaceAll("(?i);" + rank, "");
+				
+				
+				debug("[removeRank] Groups for player " + player +
+						" after attempting to remove: " + groups);
 				
 				new SQLSet(uuid, "groups", groups, table);
 			}
 		};
+		
+		List<String> groups = Lists.newArrayList(user.getGroupsNames());
+		if (groups.remove(rank))
+			groups.remove(rank);
+		user.setGroups(groups.toArray(new String[0]));
 	}
 	
 	@SuppressWarnings("deprecation")
 	private void setRank(final String player, final String rank) {
 		String uuid = Bukkit.getOfflinePlayer(player).getUniqueId().toString();
+		
+		debug("[setRank] Setting the groups of player " + player + " to " + rank + ".");
+		
 		new SQLSet(uuid, "groups", rank, table);
 	}
 	
 	private void makeRankList() {
 		toSync = Lists.newArrayList();
 		
-		for (String s : files.getConfig().getStringList("ranks to sync")) toSync.add(s.toLowerCase());
+		for (String s : files.getConfig().getStringList("ranks to sync")) {
+			toSync.add(s.toLowerCase());
+			debug("[makeRankLink] Adding " + s.toLowerCase() + " to the list of ranks to sync.");
+		}
+	}
+	
+	private void debug(String debugMessage) {
+		if (debug)
+			getLogger().log(Level.INFO, "RankSync Debug: " + debugMessage);
 	}
 	
 	@Override

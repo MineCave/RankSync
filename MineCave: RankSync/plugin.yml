@@ -3,3 +3,6 @@ version: 1.0
 author: Lactem
 main: com.minecave.ranks.RankSync
 depend: [PermissionsEx]
+commands:
+  ranksyncdebug:
+    aliases: [togglerankdebug]
