@@ -5,9 +5,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import net.minecraft.util.com.google.common.collect.Maps;
-
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 public class Table {
 	private String name;

@@ -1,11 +1,13 @@
 package com.minecave.ranks;
 
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -21,6 +23,7 @@ import ru.tehkode.permissions.PermissionUser;
 import ru.tehkode.permissions.bukkit.PermissionsEx;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.minecave.ranks.util.FileUtils;
 import com.minecave.ranks.util.MySQL;
 import com.minecave.ranks.util.SQLGet;
@@ -38,6 +41,7 @@ public class RankSync extends JavaPlugin implements Listener {
 	private Table table;
 	
 	private List<String> toSync;
+	private Map<String, Map<String, Integer>> ladders;
 	
 	@Override
 	public void onEnable() {
@@ -118,8 +122,7 @@ public class RankSync extends JavaPlugin implements Listener {
 				String[] groups = groupsString.split(";");
 				
 				if (groups.length == 0) {
-					debug("Player " + player.getName() +
-							" had no ranks in MySQL. Ignoring player completely...");
+					debug("Player " + player.getName() + " had no ranks in MySQL. Ignoring player completely...");
 					return;
 				}
 				
@@ -134,14 +137,55 @@ public class RankSync extends JavaPlugin implements Listener {
 								" did not have group " + group +
 								" in-game, but had it in MySQL. Adding in-game...");
 						user.addGroup(group);
+						currentGroups.add(group.toLowerCase());
 					} else {
 						debug("[updateGroups (login)] Player " + player.getName() +
 								" already had group " + group +
 								" in-game and in MySQL. Ignoring...");
 					}
 				}
+				removeGroupsInLadder(player, user, currentGroups);
 			}
 		};
+	}
+	
+	private void removeGroupsInLadder(Player player, PermissionUser user, List<String> groups) {
+		for (Map.Entry<String, Map<String, Integer>> ladderMapEntry : ladders.entrySet()) {
+			String ladderName = ladderMapEntry.getKey();
+			Map<String, Integer> ladderMap = ladderMapEntry.getValue();
+			List<String> possiblyRemove = groups;
+			
+			int highestPriority = 0;
+			List<String> removeFromPossiblyRemovePre = Lists.newArrayList();
+			for (String possiblyRemoveString : possiblyRemove) {
+				if (!ladderMap.containsKey(possiblyRemoveString))
+					removeFromPossiblyRemovePre.add(possiblyRemoveString);
+			}
+			for (String toRemove : removeFromPossiblyRemovePre) {
+				possiblyRemove.remove(toRemove);
+			}
+			
+			for (Map.Entry<String, Integer> ladder : ladderMap.entrySet()) {
+				if (groups.contains(ladder.getKey().toLowerCase())) {
+					highestPriority = ladder.getValue();
+					debug("Set highest priority to " + highestPriority + player.getName()
+							+ " because of " + ladder.getKey().toLowerCase() + ". Removing lower priority ranks...");
+					
+					List<String> removeFromPossiblyRemove = Lists.newArrayList();
+					for (String possiblyRemoveString : possiblyRemove) {
+						if (ladderMap.get(possiblyRemoveString) < highestPriority) {
+							user.removeGroup(possiblyRemoveString);
+							removeFromPossiblyRemove.add(possiblyRemoveString);
+							debug("Removed " + possiblyRemoveString + " from player " + player.getName()
+									+ " because he/she has a higher rank in the same ladder (" + ladderName + ")");
+						}
+					}
+					for (String toRemove : removeFromPossiblyRemove) {
+						possiblyRemove.remove(toRemove);
+					}
+				}
+			}
+		}
 	}
 	
 	private void syncGroups(final Player player) {
@@ -204,15 +248,13 @@ public class RankSync extends JavaPlugin implements Listener {
 			protected void done() {
 				String groups = result == null ? "" : (String) result;
 				
-				debug("[removeRank] Groups for player " + player +
-						" before attempting to remove: " + groups);
+				debug("[removeRank] Groups for player " + player + " before attempting to remove: " + groups);
 				
 				if (groups.toLowerCase().contains(rank.toLowerCase()))
 					groups = groups.replaceAll("(?i);" + rank, "");
 				
 				
-				debug("[removeRank] Groups for player " + player +
-						" after attempting to remove: " + groups);
+				debug("[removeRank] Groups for player " + player + " after attempting to remove: " + groups);
 				
 				new SQLSet(uuid, "groups", groups, table);
 			}
@@ -236,9 +278,22 @@ public class RankSync extends JavaPlugin implements Listener {
 	private void makeRankList() {
 		toSync = Lists.newArrayList();
 		
-		for (String s : files.getConfig().getStringList("ranks to sync")) {
-			toSync.add(s.toLowerCase());
-			debug("[makeRankLink] Adding " + s.toLowerCase() + " to the list of ranks to sync.");
+		for (String rankName : files.getConfig().getStringList("ranks to sync")) {
+			toSync.add(rankName.toLowerCase());
+			debug("[makeRankList] Adding " + rankName.toLowerCase() + " to the list of ranks to sync");
+		}
+		
+		ladders = Maps.newHashMap();
+		
+		for (String ladderName : files.getConfig().getConfigurationSection("ladders").getKeys(false)) {
+			ConfigurationSection ladderSection = files.getConfig().getConfigurationSection("ladders." + ladderName);
+			Map<String, Integer> ladderMap = Maps.newHashMap();
+			for (String rankName : ladderSection.getKeys(false)) {
+				int priority = ladderSection.getInt(rankName);
+				ladderMap.put(rankName, priority);
+				debug("[makeRankList] Adding " + ladderName.toLowerCase() + " to ladder " + ladderName + " with priority " + priority);	
+			}
+			ladders.put(ladderName, ladderMap);
 		}
 	}
 	

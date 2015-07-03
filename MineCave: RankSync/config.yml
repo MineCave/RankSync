@@ -21,3 +21,23 @@ ranks to sync:
 - dev
 - developer
 - youtube
+
+ladders:
+  donor:
+    coal: 1
+    iron: 2
+    gold: 3
+    lapis: 4
+    diamond: 5
+    emerald: 6
+    elite: 7
+    supreme: 8
+  staff:
+    youtube: 1
+    helper: 1
+    moderator: 2
+    dev: 3
+    developer: 3
+    admin: 4
+    co-owner: 5
+    owner: 6
