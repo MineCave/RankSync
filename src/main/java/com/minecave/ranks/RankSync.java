@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
-import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -26,6 +25,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.minecave.ranks.util.FileUtils;
 import com.minecave.ranks.util.MySQL;
+import com.minecave.ranks.util.SQLFinalSet;
 import com.minecave.ranks.util.SQLGet;
 import com.minecave.ranks.util.SQLNewPlayer;
 import com.minecave.ranks.util.SQLSet;
@@ -87,11 +87,23 @@ public class RankSync extends JavaPlugin implements Listener {
 	}
 	
 	@EventHandler
-	public void onJoin(final PlayerLoginEvent event) {
-		new SQLNewPlayer(event.getPlayer().getUniqueId().toString(), table) {
+	public void onJoin(PlayerLoginEvent event) {
+		final Player player = event.getPlayer();
+		new SQLNewPlayer(player.getName(), player.getUniqueId().toString(), Table.getTable("UUIDS")) {
 			@Override
 			protected void done() {
-				updateGroups(event.getPlayer());
+				// in case of name change
+				new SQLSet(player.getName(), "actual_uuid", player.getUniqueId().toString(), Table.getTable("UUIDS")) {
+					@Override
+					protected void done() {
+						new SQLNewPlayer(player.getUniqueId().toString(), table) {
+							@Override
+							protected void done() {
+								updateGroups(player);
+							}
+						};
+					}
+				};
 			}
 		};
 	}
@@ -210,7 +222,7 @@ public class RankSync extends JavaPlugin implements Listener {
 				
 				debug("[syncGroups] Final task: setting groups in MySQL to '" + groups + "'.");
 				
-				new SQLSet(player, "groups", groups, table);
+				new SQLFinalSet(player, "groups", groups, table);
 			}
 		};
 	}
@@ -240,39 +252,47 @@ public class RankSync extends JavaPlugin implements Listener {
 	
 	@SuppressWarnings("deprecation")
 	private void removeRank(final String player, final String rank) {
-		final String uuid = Bukkit.getOfflinePlayer(player).getUniqueId().toString();
-		final PermissionUser user = PermissionsEx.getUser(player);
-		
-		new SQLGet(uuid, "groups", table) {
+		new SQLGet(player, "actual_uuid", Table.getTable("UUIDS")) {
 			@Override
 			protected void done() {
-				String groups = result == null ? "" : (String) result;
+				String uuid = (String) result;
+				PermissionUser user = PermissionsEx.getUser(player);
+				new SQLGet(uuid, "groups", table) {
+					@Override
+					protected void done() {
+						String groups = result == null ? "" : (String) result;
+						
+						debug("[removeRank] Groups for player " + player + " before attempting to remove: " + groups);
+						
+						if (groups.toLowerCase().contains(rank.toLowerCase()))
+							groups = groups.replaceAll("(?i);" + rank, "");
+						
+						
+						debug("[removeRank] Groups for player " + player + " after attempting to remove: " + groups);
+						
+						new SQLFinalSet(uuid, "groups", groups, table);
+					}
+				};
 				
-				debug("[removeRank] Groups for player " + player + " before attempting to remove: " + groups);
-				
-				if (groups.toLowerCase().contains(rank.toLowerCase()))
-					groups = groups.replaceAll("(?i);" + rank, "");
-				
-				
-				debug("[removeRank] Groups for player " + player + " after attempting to remove: " + groups);
-				
-				new SQLSet(uuid, "groups", groups, table);
+				List<String> groups = Lists.newArrayList(user.getGroupsNames());
+				if (groups.remove(rank))
+					groups.remove(rank);
+				user.setGroups(groups.toArray(new String[0]));
 			}
 		};
-		
-		List<String> groups = Lists.newArrayList(user.getGroupsNames());
-		if (groups.remove(rank))
-			groups.remove(rank);
-		user.setGroups(groups.toArray(new String[0]));
 	}
 	
-	@SuppressWarnings("deprecation")
 	private void setRank(final String player, final String rank) {
-		String uuid = Bukkit.getOfflinePlayer(player).getUniqueId().toString();
-		
-		debug("[setRank] Setting the groups of player " + player + " to " + rank + ".");
-		
-		new SQLSet(uuid, "groups", rank, table);
+		new SQLGet(player, "actual_uuid", Table.getTable("UUIDS")) {
+			@Override
+			protected void done() {
+				String uuid = (String) result;
+				
+				debug("[setRank] Setting the groups of player " + player + " to " + rank + ".");
+				
+				new SQLFinalSet(uuid, "groups", rank, table);
+			}
+		};
 	}
 	
 	private void makeRankList() {
